@@ -110,6 +110,7 @@ func Clientescars_GetSchema(n_docu string) ([]models.Base, string) {
 		Name:        "n_docu",
 		Description: "n_docu",
 		Required:    true,
+		Update:      true,
 		Default:     n_docu,
 		Type:        "string",
 		Strings: models.Strings{

@@ -33,6 +33,7 @@ func Servicios_GetSchema() ([]models.Base, string) {
 	servicios = append(servicios, models.Base{ //n_year
 		Name:        "n_year",
 		Description: "n_year",
+		Update:      true,
 		Required:    true,
 		Default:     date.GetYear(),
 		Type:        "uint64",
@@ -43,7 +44,6 @@ func Servicios_GetSchema() ([]models.Base, string) {
 	servicios = append(servicios, models.Base{ //k_stad
 		Name:        "k_stad",
 		Description: "k_stad",
-		Required:    true,
 		Update:      true,
 		Type:        "uint64",
 		Uint: models.Uints{
@@ -80,6 +80,7 @@ func Servicios_GetSchema() ([]models.Base, string) {
 	servicios = append(servicios, models.Base{ //n_docu
 		Name:        "n_docu",
 		Description: "n_docu",
+		Update:      true,
 		Required:    true,
 		Type:        "string",
 		Strings: models.Strings{
@@ -91,13 +92,23 @@ func Servicios_GetSchema() ([]models.Base, string) {
 	servicios = append(servicios, models.Base{ //c_plac
 		Name:        "c_plac",
 		Description: "c_plac",
+		Update:      true,
 		Required:    true,
 		Type:        "string",
 		Strings: models.Strings{
 			Expr:      *models.Null(),
 			Min:       7,
 			Max:       7,
-			LowerCase: true,
+			UpperCase: true,
+		},
+	})
+	servicios = append(servicios, models.Base{ //n_flot
+		Name:        "n_flot",
+		Description: "n_flot",
+		Required:    true,
+		Type:        "uint64",
+		Uint: models.Uints{
+			Max: 1000,
 		},
 	})
 	return servicios, tableName

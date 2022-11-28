@@ -26,8 +26,8 @@ func RutasServicios(r *mux.Router) {
 	s.Handle("/create", middleware.AuthLogin(http.HandlerFunc(insertServicios))).Methods("POST")
 	s.Handle("/create-factura/{id_serv}", middleware.AuthLogin(http.HandlerFunc(regDetalleFactura))).Methods("POST")
 	s.Handle("/update/{id_serv}", middleware.AuthLogin(http.HandlerFunc(updateServicio))).Methods("PUT")
-	s.Handle("/update/baja/{id_serv}", middleware.AuthLogin(http.HandlerFunc(darBaja))).Methods("PUT")
-	s.Handle("/update/alta/{id_serv}", middleware.AuthLogin(http.HandlerFunc(darAlta))).Methods("PUT")
+	s.Handle("/update-baja/{id_serv}", middleware.AuthLogin(http.HandlerFunc(darBaja))).Methods("PUT")
+	s.Handle("/update-alta/{id_serv}", middleware.AuthLogin(http.HandlerFunc(darAlta))).Methods("PUT")
 
 }
 
@@ -35,9 +35,7 @@ func listarAllservicios(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	response := controller.NewResponseManager()
 
-	params := mux.Vars(r)
-	n_docu := params["n_docu"]
-	data_servicio := orm.NewQuerys("taxi_servicios").Where("n_docu", "=", n_docu).OrderBy("id_serv").Select().Exec().All()
+	data_servicio := orm.NewQuerys("taxi_servicios").Select("c_plac,f_fact,id_serv,k_stad,n_flot,n_month,n_year").OrderBy("n_flot").Exec().All()
 
 	if len(data_servicio) <= 0 {
 		controller.ErrorsSuccess(w, errors.New("no se encontraron resultados para la consulta"))
@@ -60,7 +58,7 @@ func listOneServicio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data_servicio := orm.NewQuerys("taxi_servicios").Select().Where("id_serv", "=", id_serv).Exec().One()
+	data_servicio := orm.NewQuerys("taxi_servicios as a").Select("a.*,b.l_clie").InnerJoin("requ_clientes as b", "a.n_docu = b.n_docu").Where("id_serv", "=", id_serv).Exec().One()
 
 	if len(data_servicio) <= 0 {
 		controller.ErrorsWaning(w, errors.New("no se encontraron resultados para la consulta"))
@@ -110,10 +108,10 @@ func servicioCliente(w http.ResponseWriter, r *http.Request) {
 	// id_serv := params["id_serv"]
 	n_docu := params["n_docu"]
 	if n_docu == "" {
-		controller.ErrorsSuccess(w, errors.New("no se encontraron resultados para la consulta"))
+		controller.ErrorsSuccess(w, errors.New("cliente no cuenta con ningun servicio"))
 	}
 
-	data_servicio := orm.NewQuerys("taxi_servicios").Select("n_year,n_month,f_fact,s_impo,c_plac,k_stad,f_digi,id_serv").Where("n_docu", "=", n_docu).Exec().All()
+	data_servicio := orm.NewQuerys("taxi_servicios").Select("n_year,n_month,f_fact,s_impo,c_plac,k_stad,f_digi,id_serv,n_flot").Where("n_docu", "=", n_docu).Exec().All()
 	if len(data_servicio) <= 0 {
 		controller.ErrorsInfo(w, errors.New("cliente no cuenta con ningun servicio"))
 		return
@@ -271,8 +269,23 @@ func darBaja(w http.ResponseWriter, r *http.Request) {
 	data_request := make(map[string]interface{})
 	json.Unmarshal(reqBody, &data_request)
 
+	cargo := library.GetSession_key_interface("cargo").(int64)
+
+	if cargo <= 2 {
+
+		controller.ErrorsWaning(w, errors.New("No se pueden hacer cambios"))
+		return
+	}
+
+	data_pagos := orm.NewQuerys("taxi_serviciosdetalle").Select().Where("id_serv", "=", id_serv).And("k_stad", "=", 1).Exec().All()
+
+	if len(data_pagos) <= 0 {
+		controller.ErrorsInfo(w, errors.New("No se encontraron resultados para la consulta"))
+		return
+	}
+
 	data_body := make(map[string]interface{})
-	data_body["k_stad"] = int64(0)
+	data_body["k_stad"] = int64(1)
 	// data_body["s_impo"] = int64(0)
 
 	data_body["where"] = map[string]interface{}{"id_serv": id_serv}
@@ -323,7 +336,7 @@ func darAlta(w http.ResponseWriter, r *http.Request) {
 		data_body["s_impo"] = data_request["s_impo"]
 	}
 
-	data_body["k_stad"] = int64(1)
+	data_body["k_stad"] = int64(0)
 	// retorna fecha de formato string dd/mm/yyyy (America Bogota)
 	data_body["f_fact"] = date.GetFechaLocationString()
 
@@ -346,6 +359,73 @@ func darAlta(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response.Data = _Servicios.Data[0]
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(response)
+}
+
+func pagarTributo(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content Type", "Aplication-Json")
+	response := controller.NewResponseManager()
+
+	params := mux.Vars(r)
+	id_serv := params["id_serv"]
+
+	if id_serv == "" {
+		controller.ErrorsWaning(w, errors.New("no se encontraron resultados para la consulta"))
+		return
+	}
+
+	fact := orm.NewQuerys("taxi_serviciosdetalle").Select("n_year || '-' || n_month as periodo").Where("id_serv", "=", id_serv).And("k_stad", "=", 0).Exec().All()
+
+	var newFact []string
+	for _, v := range fact {
+		newFact = append(newFact, v["periodo"].(string))
+	}
+	// fmt.Println(newFact)
+
+	data_servicio := orm.NewQuerys("taxi_servicios").Select("n_year", "n_month", "f_fact", "s_impo", "k_stad").Where("id_serv", "=", id_serv).Exec().One()
+	date_fact := date.GetDate(data_servicio["f_fact"].(string))
+	date_now := date.GetDateLocation()
+
+	month_init := int64(date_fact.Month())
+	year_init := date_fact.Year()
+	month_now := int64(date_now.Month())
+	year_now := date_now.Year()
+
+	var data_facturaciones []map[string]interface{}
+	var month = int64(12)
+
+	impo := data_servicio["s_impo"].(float64)
+	
+	if pagoTributo == true {
+		return
+
+	} else {
+		return false
+
+	}
+
+	for i := year_init; i <= year_now; i++ {
+		if i == year_now {
+			month = month_now
+		}
+		for e := month_init; e <= month; e++ {
+			// fmt.Println(i, e)
+			year := fmt.Sprintf("%v", i)
+			month := fmt.Sprintf("%d", e)
+			if library.IndexOf_String(newFact, year+"-"+month) == -1 {
+				data_facturaciones = append(data_facturaciones, map[string]interface{}{
+					"n_year":  year,
+					"n_month": month,
+					"s_impo":  impo,
+				})
+			}
+		}
+
+		month_init = 1
+	}
+
+	response.Data["detalle_fact"] = data_facturaciones
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(response)
 }
